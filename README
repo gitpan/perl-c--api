@@ -1,0 +1,75 @@
+
+                          Copyright 1997, Ken Fox
+			    All rights reserved.
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of either:
+
+	a) the GNU General Public License as published by the Free
+	Software Foundation; either version 1, or (at your option) any
+	later version, or
+
+	b) the "Artistic License" which comes with this Kit.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See either
+    the GNU General Public License or the Artistic License for more details.
+
+    You should have received a copy of the Artistic License with this
+    Kit, in the file named "Artistic".  If not, I'll be glad to provide one.
+
+    You should also have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+--------------------------------------------------------------------------------
+This is an ALPHA release of a Perl C++ API I've been working on.
+
+To build the release, edit the Makefiles to customize for your C++ compiler
+and perl location.  If "g++" and "perl" are in your path then the Makefiles
+should work fine.  I've been developing with GNU C++ 2.7.2 and Perl
+5.00(almost)4, but I'll try to fix any code that doesn't compile on another
+compiler.  You will need templates.
+
+Please send bug reports to <fox@vulpes.com>.  Include a typescript session
+of the bug and the output of "perl -V".
+
+The organization of this package is far from complete.  I'm not sure exactly
+how to best distribute this to the rest of the perl community.  I suppose that
+I need to use an autoconfigure script to find the C++ compiler and figure out
+what level of C++ it supports, but I really don't have time for that right
+now.  I think that I'm just going to keep the source code very simple for this
+release and let people install a single object file (or very tiny library)
+into their perl lib directory.  I will create a Makefile.PL and a MANIFEST to
+make that easier.
+
+Any better ideas?
+
+Documentation in ./doc is not complete.  In particular, some of the things in
+the documentation have not been synched up with the code.  There are a lot of
+things currently undocumented.  There are also a few things prototyped in the
+header but not implemented.  gcc doesn't mind this, but your compiler might.
+
+Tests in ./test are not complete.  But run these anyway!  There really is
+pretty good coverage with the tests -- they're just not organized.
+
+The small programs in ./demo are really useful for experimenting with the
+library.  I'll be adding a lot more demos in the near future.
+
+Any questions or comments?  Please send them to <fox@vulpes.com>.
+
+- Ken
+  10:23 pm Tuesday, May 6, 1997
+
+This version has better template and object (i.e. C++ object to/from Perl
+object) support.  The Perl interpreter is automatically initialized if you try
+to do something that needs it before initializing it yourself.  (This was to
+fix some nasty C++ static initialization sequencing problems.)  I've also made
+a few bug fixes.
+
+This version is getting extensive use in a large C++ library I'm building.  It
+should be quite reliable, but demos, tests and documentation are still scarce.
+
+- Ken
+  5:42 pm Sunday, June 8, 1997

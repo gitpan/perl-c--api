@@ -1,0 +1,721 @@
+
+[Yeah, I know, this isn't a pod.  It will be.]
+
+
+Introduction
+
+The C++ Perl API [This package needs a name.  Ideas?] implements a class
+library which provides a safe, simple and complete interface to an embedded
+Perl interpreter.  The API uses Perl's existing C API and doesn't change any
+part of the Perl language.  If you've never used embedded Perl, then think of
+this library as a way for your C++ code to reuse the functionality of Perl and
+Perl modules.  For those of you who have already consumed perlguts.pod, think
+of this as just an easier way.
+
+I'm going to assume that you've read the perlembed documentation.  That's the
+place you'll find the complete introduction to how embedded Perl works and why
+you might want to use it.  Here are a few good reasons:
+
+  * You might like to use Perl strings instead of the string class available
+    in your C++ library.  Most C++ libraries don't have robust regular
+    expressions.
+
+  * You'll probably want to use the Net and WWW modules to access network
+    resources because you're already used to using these modules in your Perl
+    scripts.  There are complete examples on how to do this included with
+    this package.
+
+  * Your users will certainly appreciate being able to use Perl to extend
+    your application's functionality.  Give them a reason not to learn Tcl.
+
+The core of the C++ Perl API consists of a set of classes that "wrap" Perl
+data and completely insulate your application code from the Perl internals.
+The wrappers provide you several benefits over just using the Perl internals
+directly:
+
+  * Wrappers eliminate of a large number of programming errors by enforcing
+    that the wrapped Perl objects are used according to the Perl API.
+
+  * Wrappers simplify integrating Perl with your application by providing nice
+    syntax and many convenient methods.
+
+  * Wrappers reduce name conflicts when using Perl by avoiding the inclusion
+    of the Perl header files into your application code.
+
+  * Wrappers may protect your application code from future changes to the Perl
+    core by maintaining a stable class interface.
+
+The rest of the C++ Perl API consists of:  a class that interfaces with the
+Perl interpreter; some helper classes for dealing with special Perl features;
+and templates for ensuring type safety when working with Perl arrays and
+hashes.  I'll start with how to start an embedded Perl interpreter and then
+jump right into data wrappers.  If you just can't wait to get started, take a
+look at simple.cc in the demo directory.  It will show you how to start a
+Perl interpreter, evaluate a Perl expression, and do something with the
+result.
+
+
+Starting an Embedded Perl Interpreter
+
+[Static C++ initialization sequencing is a night-mare.  If you want to create
+ static perl objects, you're probably better off just letting the system start
+ a perl interpreter whenever you need one.  This is a long way from perfect
+ because you won't be able to control when/how the interpreter gets created,
+ but at least you're static initialization will succeed.  There is the static
+ method wPerl::run() that will return (and possibly start) the default running
+ perl interpreter.]
+
+  wPerl perl;
+
+  wPerl *perl = new wPerl();
+
+Just declaring or allocating a 'wPerl' object will start a Perl interpreter
+and set the default context for all Perl evaluations to that interpreter.
+Currently, only one interpreter may exist at any given time, but multiple
+interpreters can be created and destroyed in sequence.  In most of the
+demonstrations, the Perl interpreter will be created as a local variable in
+main().  That will probably not be very convenient for your applications.
+You will probably want to use a global wPerl object.
+
+This interface will certainly be improved in the future.  If you only start a
+single interpreter using the method described in this section, then your code
+will continue to work with future versions of the C++ API.
+
+
+Evaluating a Perl Expression
+
+  perl.eval("1");
+
+Evaluate the Perl code "1" in the context of the Perl interpreter defined by
+the 'perl' object.  In Perl all constants are self-evaluating, so this
+expression just returns '1'.  The return result is ignored by the C++ code.
+
+  perl.eval("1 + 1");
+
+Evaluate the Perl code "1 + 1" in the context of the Perl interpreter defined
+by the 'perl' object.  This is expression adds the two constants and returns
+'2'.  The return result is ignored by the C++ code.
+
+  perl.eval("print \"1\\n\"");
+
+This example calls the Perl built-in 'print' to print a string.  Notice that
+the quoting convention used by C++ interferes with the quotes needed in the
+Perl string.  C++ uses the same quotes and back slash notation as Perl, so the
+string must protect those characters from the C++ compiler so that they will
+go through to the Perl interpreter.  Read the Perl man pages for more
+information about the syntax of string constants.
+
+The rules for building a Perl expression, including those for building
+strings, are exactly the same when storing Perl expressions in C++ strings as
+they are for Perl scripts.  However, the C++ compiler might throw a few
+surprises at you.  Take the following code:
+
+  perl.eval("print '\n'");
+
+If you're a Perl hacker in Perl mode when you read this you might think it
+will print a back slash followed by the letter n.  It would in Perl, but C++
+parses the string first and converts all back slash notation before Perl even
+sees the string.  This example actually prints a newline.
+
+  perl.eval("$t = 1; print \"$t\\n\"");
+
+Print the value of the scalar variable '$t' followed by a newline.  The next
+example show a little cleaner syntax that accomplishes the same thing.
+
+  perl.eval("$t = 1; print $t.'\n'");
+
+This example uses C++ to expand the '\n' and concatenates the variable and the
+string together "manually".  If you want to avoid the construction of a
+temporary string, just pass multiple arguments to 'print' like this:
+
+  perl.eval("$t = 1; print $t, '\n'");
+
+
+Perl Data Wrappers
+
+A wrapper is a design pattern used for hiding a "thing" behind an "interface."
+Usually this is done for convenience or safety.  In the case of the Perl data
+wrappers, the wrappers hide the C structures used by Perl and replace the C
+interface (built from preprocessor macros and C functions) with C++ class
+methods.  The original Perl data structures still exist, but are privately
+held inside the classes.  Wrapping Perl in this way provides you safety
+because the C++ compiler will enforce handling Perl data properly -- the
+methods defined on the wrapper classes are the only way your application code
+can access Perl data.  The two most important safety features are the
+automatic handling of reference counts and the elimination of pointer
+handling.  Every routine in the library uses wrapper objects for its arguments
+or return values.
+
+All wrapper classes begin with "wPerl" to protect the names of the Perl
+arrays, hashes, strings, patterns, etc. from other code.  Eventually a C++
+namespace will be used for this purpose.
+
+
+Data Wrapper Flavors
+
+Wrappers come in two flavors:  normal and shadow.  Normal wrappers have pass
+by value semantics whenever they are constructed or copied.  For example, when
+a normal wrapper is passed into a subroutine, a copy of the value is made and
+it is the copy that the subroutine uses.  The shadow wrappers have pass by
+reference semantics when constructed and pass by value semantics when copied.
+Using the subroutine example again, when a shadow wrapper is passed to a
+subroutine, the value is not copied and the subroutine is able to modify the
+original.  Here is a brief comparison of the two wrapper flavors.
+
+  # Sample Perl code
+
+  sub ModifyArgument ($) {
+    $_[0] = 1;
+  }
+
+  sub DontModifyArgument ($) {
+    my $arg = $_[0];
+    $arg = 1;
+  }
+
+  // Sample C++ code with identical semantics
+
+  void ModifyArgument(wPerlScalarShadow arg) {
+    arg = 1;
+  }
+
+  void DontModifyArgument(wPerlScalar arg) {
+    arg = 1;
+  }
+
+NOTE:  In this example, you should probably use standard C++ references, i.e.
+wPerlScalar &arg, for handling output arguments because that is easier to read
+and has better performance.  The shadow wrappers are necessary in some
+circumstances, but try to avoid them because they are surprising to the
+average C++ programmer.
+
+Shadow wrappers always end in the name "Shadow".  You'll see lots of examples
+of these two wrapper flavors in the following sections.
+
+
+Subclassing Data Wrappers
+
+The wrappers have been carefully written so that they don't impose any
+performance penalty by using them instead of the internal Perl data
+structures.  To achieve this, I've had to avoid the use of virtual methods and
+virtual inheritance and keep the size of the object small enough to fit into a
+machine register.  Unfortunately, these optimizations make subclassing the
+wrappers much more difficult and error prone.  The only reason that you should
+subclass the wrappers is if you need access to the internal Perl data
+structures.
+
+
+Scalar Wrappers -- wPerlScalar and wPerlScalarShadow
+
+This class wraps a Perl scalar value, also called an SV.  Perl scalar values
+are prefixed with a '$' in Perl code.  In the C++ code you will not use the
+'$'.  (You'll always need the '$' in Perl code though -- even if the Perl code
+is contained in a C++ string.)  There is no correlation between the variable
+names you use in the C++ code and the variable names (if any) you use in the
+Perl code.
+
+To introduce the wrappers, I'll first provide a lot of "cookbook" examples of
+how to use them and then I'll give the annotated class definition.
+
+
+Declaring a Scalar Wrapper
+
+  wPerlScalar x;
+
+Declare a C++ variable 'x' that can hold a perl scalar value.  This does not
+create the perl scalar variable '$x'.  The initial value of 'x' is undefined
+(by the Perl definition).
+
+Declaring a C++ wPerlScalar variable will not automatically create a Perl
+scalar variable with the same name.  See wPerl::scalar() for how to do that.
+
+
+Assigning Values To a Scalar Wrapper
+
+  wPerlScalar x = 1;
+  x = 1;
+  x.set_as_integer(1);
+
+Assign the integer value 1 to 'x'.  Perl scalars store integer
+values as the C++ type 'long'.  There isn't any perl scalar variable
+'$x', so don't even think about asking if '$x' changes.
+
+The '=' operator and single argument constructors accept type 'int' instead of
+'long'.  This avoids the ambiguous conversion warning that 'x = 1' causes
+because C++ can't decide if you want to convert 'int' 1 to 'long' 1 or
+'double' 1.
+
+  wPerlScalar x = 2.0;
+  x = 2.0;
+  x.set_as_real(2.0);
+
+Assign the real value 2.0 to 'x'.  Perl scalars store real values
+as the C++ type 'double'.
+
+  wPerlScalar x = "One";
+  x = "One";
+  x.set_as_string("One");
+  x.set_as_bytes("One", sizeof("One"));
+
+Assign the string value "One" to 'x'.  Perl makes a copy of the string so
+assignments from temporary values work perfectly fine.  It is a bug to write
+code like 'x.set_as_string(new char [20], 20)'.  That not only creates a 20
+byte long string of random garbage, it also leaks the memory that 'new'
+returned.
+
+Perl scalars are dynamically typed (and converted) so it is perfectly fine to
+use the same variable as an integer in one place and later as a string.  The
+unwary programmer can be tripped up by this so use dynamic type changes
+carefully.
+
+
+Copying a Scalar Wrapper
+
+  wPerlScalar x = 1;
+
+  wPerlScalar y = x;
+  y = x;
+
+When a scalar is copied, a brand new copy of the value being assigned is
+created.  This can be rather expensive for string assignment because a new
+copy of the entire string is made.  This behavior is identical to assignment
+in Perl.
+
+
+Functions Taking Scalar Wrappers As Arguments
+
+  void f(wPerlScalar y) {
+     printf("y = %d\n", y.as_integer());
+
+     // change the *copy* of 'y' not the original
+     y = 2;
+
+     printf("y = %d\n", y.as_integer());
+  }
+
+Define a function accepting a perl scalar value as an argument.
+The method 'as_integer()' just returns the value of the scalar
+as a C++ integer.  More on this later.
+
+The scalar argument to 'f()' is always copied so 'f()' can not change
+the original value of 'y'.
+
+  wPerlScalar x = 1;
+  f(x);
+
+Call the function 'f()' and pass a Perl scalar into it.
+
+  f(1);
+
+Call the function 'f()' and pass a temporary Perl scalar into it.
+C++ will automatically construct a wPerlScalar value from the 1.
+When the function returns, C++ will automatically destroy the temporary.
+This is a powerful syntactic convenience, but also something that you'll
+have to be careful of -- creating and destroying temporaries takes
+time.
+
+  f(2.0);
+
+Same as above, but create a temporary scalar with a value of 2.0.
+
+  f("One");
+
+Same as above, but create a temporary scalar with a value of "One".
+What do you think Perl will do when you try to convert "One" into
+an integer?  Hint:  Try executing the Perl code "One" + 2 with perl.
+
+
+Functions Returning Scalar Wrappers
+
+  wPerlScalar g() {
+     return wPerlScalar(1);
+  }
+
+  wPerlScalar g() {
+    wPerlScalar r;
+    r = 1;
+    return r;
+  }
+
+
+Avoiding the Copy of Scalar Wrapper Function Arguments
+
+  void h(const wPerlScalar &y) {
+     printf("y = %d\n", y.as_integer());
+  }
+
+Define a function accepting a constant reference to a perl scalar value
+as an argument.  If you haven't seen these before then just think of it
+as a way to pass an argument by address but without the function able to
+change the original value.  C++ jargon for this is 'const ref'.
+
+The scalar argument to 'g()' is never copied, but 'g()' can not change
+the value of 'y' because it is marked constant.  It is important to
+remember that whenever you see a reference ('&'), it is actually an
+alias for another value.
+
+  wPerlScalar x = 1;
+  h(x);
+
+Call the function 'h()' and pass a Perl scalar into it.  The scalar
+is not copied.  Calling 'h()' is a bit faster than calling 'f()'
+because the argument is not copied.  (Copying a value in Perl uses
+malloc() which is very expensive relative to a subroutine call.)
+
+  h(1);
+  h(2.0);
+  h("One");
+
+These work similarly as in the previous example with 'f()', but since
+the temporary object is not copied they are a bit faster.
+
+
+Functions Returning Scalar Wrappers as Output Arguments
+
+  void h(wPerlScalar &y) {
+     printf("y = %d\n", y.as_integer());
+
+     // change the *original* value of 'y'
+     y = 2;
+
+     printf("y = %d\n", y.as_integer());
+  }
+
+References can be non-const too.  Then you would be able to modify the
+original value.  Use a non-const reference whenever you want to return a
+scalar value by modifying a function argument.  If you are more comfortable
+with C, you might want to use pointers instead of references.  The syntax is a
+bit different, but the semantics are very similar.  If you do use pointers,
+make sure that you check for NULL.
+
+
+Declaring a Scalar Shadow Wrapper
+
+  wPerlScalar x = 1;
+  wPerlScalarShadow s_x = x;
+
+  wPerlScalarShadow s_x = perl.scalar("x", wPerl::Create)
+
+Declare a C++ variable 's_x' that can share a perl scalar value with another
+perl scalar variable.  These shared, or shadow, variables can not be
+initialized by themselves; they must always have a partner to share a value
+with.  Once created, the shadow variable can be used exactly like any other
+wPerlScalar variable.
+
+Shadow variables are a bit tricky and should not be used unless the shared
+value behavior is really what you need.  Shadows were invented so that you can
+easily keep a C++ variable and a Perl variable synchronized.
+
+
+Assigning Values To a Scalar Shadow Wrapper
+
+  wPerlScalar x = 0;
+  wPerlScalarShadow s_x = x;
+
+  s_x = 1;                      // s_x and x are now 1
+  s_x.set(2.0);                 // s_x and x are now 2.0
+  s_x.set_as_string("One");     // s_x and x are now "One"
+
+  x = 3;                        // s_x and x are now 3 -- works both ways!
+
+These assignments work similarly to the assignment examples used for normal
+scalar wrappers.  The difference is that assigning to the shadow also modifies
+the shadow's partner.
+
+NOTE:  Undefined scalar values can't be shared.  I'm not sure if this is a bug
+or a feature, but it does mean that the following code doesn't force 'astray'
+to be shared with 'undefined'.
+
+  wPerlScalar undefined;
+  wPerlScalarShadow astray = undefined;
+
+
+Functions Taking Scalar Shadow Wrappers As Arguments
+
+  void f(wPerlScalarShadow y) {
+     printf("y = %d\n", y.as_integer());
+
+	// change the *original* 'y'
+	y = 2;
+
+	printf("y = %d\n", y.as_integer());
+  }
+
+Define a function accepting a perl scalar shadow value as an argument.
+
+Any scalar argument to 'f()' will never copied so 'f()' can change the
+original 'y' value.  A better way to accomplish this is by using the 'const
+ref' and 'non-const ref' techniques described earlier.
+
+  wPerlScalar x = 1;
+  f(x);
+  // x is now 2!
+
+Call the function 'f()' and pass a Perl scalar into it.  After the
+function returns, 'x' will have a value of 2.
+
+  wPerlScalarShadow s_x = perl.scalar("x", wPerl::Create)
+  f(s_x);
+  // s_x and $x are now 2!
+
+Call the function 'f()' and pass a Perl scalar shadow into it.  After the
+function returns, 's_x' and '$x' will have a value of 2.
+
+There are a few occasions where you may need to use shadow values as function
+arguments.  The best way to approach the problem is to only use the 'const
+ref' and 'non-const ref' code and let the C++ compiler warn you when that
+won't work.  Here's how g++ complains:
+
+ warning: initialization of non-const `wPerlScalar &' from rvalue `wPerlScalarShadow'
+
+When you see this error, you'll probably want to switch to shadow value
+arguments.  The alternative is to restructure your code so that you don't ask
+the compiler to do this.
+
+In the most perfect future, you'll never see an error like this and then you
+will have saved all the trouble of learning how the work.  Laziness is a
+virtue.
+
+
+Array Wrapper -- wPerlArray and wPerlArrayShadow
+
+This class wraps a perl AV.
+
+
+	// The << and >> operators implement a FIFO
+
+	// array >> x >> y; --> $x = shift @array; $y = shift @array;
+	// array << x << y; --> push @array, $x, $y;
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hash Wrapper -- wPerlHash and wPerlHashShadow
+
+This class wraps a perl HV.
+
+
+Regular Expressions
+
+Because regular expressions are rather expensive to construct, a special class
+is designed to hold a compiled regular expression.  This class is called
+wPerlPattern.  A pattern object is constructed with a regular expression
+operation (m//, s///, or tr///).  The pattern can then be applied to a scalar
+as many times as desired.
+
+
+Performance Hints
+
+At first glance, you may think the following C++ code runs much faster than
+the equivalent Perl code.  You'd be wrong.  The Perl code is actually faster.
+On the Sun Ultra 2, the Perl code runs 10% faster than the C++ code.
+
+    // C++ code				    # Perl code
+
+    wPerlScalar r = 0;			    $r = 0;
+
+    for (int i = 0; i < 1000000; ++i)	    for ($i = 0; $i < 1000000; ++$i)
+    {					    {
+	r = r + i;			        $r = $r + $i;
+    }					    }
+
+The trouble with the C++ code is that it creates a lot more temporary values
+than the Perl code -- which means a lot more calls to malloc().  The following
+C++ code runs about 10x faster than the Perl code.  (Possibly faster if you
+have a really good C++ compiler.)
+
+    // C++ code				    # Perl code
+
+    wPerlScalar r = 0;			    $r = 0;
+
+    for (int i = 0; i < 10000; ++i)	    for ($i = 0; $i < 10000; ++$i)
+    {					    {
+	r += i;				        $r += $i;
+    }					    }
+
+Of course, the way to get the best performance out of C++ is to
+avoid using Perl objects directly when regular C++ will work.  The
+following C++ code runs much faster than the Perl code.  Perl is
+no slouch though, so even though the C++ code is faster, you might
+not notice it in your application's over-all performance.  Making
+a habit of writing code like this won't win any points with future
+colleagues maintaining your code.
+
+    // C++ code				    # Perl code
+
+    wPerlScalar r = 0;			    $r = 0;
+    int temp_r = r.as_integer();
+
+    for (int i = 0; i < 1000; ++i)	    for ($i = 0; $i < 1000; ++$i)
+    {					    {
+	temp_r += i;				$r += $i;
+    }					    }
+    r = temp_r;
+
+The performance advice given here only applies to doing things that either C++
+or the C++ Perl API can do quickly, e.g. as direct functions without having to
+use the Perl interpreter to evaluate.  If you are doing a lot of Perl
+subroutine calls or string evaluation then the C++ code will by definition run
+only as fast as the equivalent Perl.  The other condition to watch out for
+when tuning your application is when neither your C++ code or the Perl code
+are the bottlenecks.  This frequently happens when doing intense I/O or large
+memory allocations.  In that case, you'll have to resort to improving your
+application logic or reducing your functional requirements.
+
+
+How To Do Hairy Internal Stuff
+
+Subclass to add methods.  Then frob the Perl data structures directly.  Be
+sure to include the right Perl header files in your implementation code.
+Don't pollute the user's namespace by including Perl header files in your
+class definition header file.
+
+
+Shortfalls With the Current Approach
+
+  * Excessive Creation Of Temporary SVs
+
+    How programmers can work around this performance problem has been
+    discussed, but I'd like to point out a few ways that perl could become
+    friendlier to embedded interfaces.
+
+    1. Simplify the calling convention for Perl built-in functions.
+
+       Built-in perl primitives could be written to accept arguments via the
+       standard C calling conventions to eliminate the hairy Perl sub calling
+       sequence.  A wrapper function would be necessary to take arguments off
+       the perl argument stack and hand them off to the primitives.  (Or the
+       primitives could be defined as inline functions to eliminate the extra
+       function call due to the wrapper.)
+
+       Take the Perl "+" operator for example.  It is currently implemented as
+
+       PP(pp_add)
+       {
+           dSP; dATARGET; tryAMAGICbin(add,opASSIGN);
+           {
+             dPOPTOPnnrl_ul;
+             SETn( left + right );
+             RETURN;
+           }
+       }
+
+       It could be changed to something like:
+
+       inline void add(SV *target, SV *left, SV *right)
+       {
+          sv_setnv(target, SvNV(left) + SvNV(right));
+       }
+
+       PP(pp_add)
+       {
+           dSP; dATARGET; tryAMAGICbin(add,opASSIGN);
+           {
+	      SV *left = ...
+	      SV *right = ...
+	      add(targ, left, right);
+	      RETURN;
+	   }
+       }
+
+       This has the distinct advantage that an extension writer can now easily
+       call the "+" operator without using the perl stack.  I'm not sure what
+       the disadvantages of this approach are.  I know the "+" example is
+       trivial, but for complex primitives this is a big win.
+
+    2. Allow alternate interfaces accepting C strings instead of SVs.
+
+       There are many functions that only accept SVs but do their real work on
+       character strings.  To call these functions the embedder must create a
+       temporary SV (which copies the string value) just to have the Perl
+       function rip the SV apart a few instructions later.  The functions
+       split(), index() and substr() are good candidates to change.
+
+    3. Allow temporary SVs to be cheaply created and destroyed.
+
+       If a pool of temporary SVs could be created and used as necessary, this
+       would greatly reduce the number of calls to malloc() and free().  Going
+       a step further and allowing string allocations to be made from the
+       temporary pool would also reduce memory management.
+
+       The "pool" approach (similar to that used in the Apache web server) is
+       useful because all temporary allocations can be discarded
+       simultaneously.  Perhaps this could be combined with the ability to
+       create lexical variables similar to how Perl handles temporaries
+       internally.
+
+       Perhaps a quick hack to reduce string allocations would be to allow the
+       user to create an SV with a shared string value.  The SV would have to
+       be marked as having an externally managed value so that Perl does not
+       try to free() or realloc() it.  This could be used when assigning a
+       substring for example -- the temporary is never saved and needs to be
+       destroyed as soon as the replacement is complete.
+
+  * Lack of Lvalue, Rvalue, Scalar and Array Contexts
+
+    Not much to say here except that the C++ syntax can't be made as intuitive
+    as the Perl.  The primary problem is in array and hash element assignment,
+    which most people will probably expect to work as in Perl.  This can be
+    partly fixed by using proxy classes that can defer detection of lvalue or
+    rvalue context.
+
+  * Incomplete Perl Support
+
+    Excuses, excuses, excuses.  I just haven't had time to finish everything
+    that I'd like to have.  Mainly there should be a simple way to have Perl
+    call back into C++ and a nice interface to Perl IO.  Automatically
+    blessing C++ objects in Perl would be way cool too.  [Almost there.
+    Really needs to have hooks into the RTTI system, but templates work pretty
+    well too.]
+
+
+
+
+Future Direction
+
+* Better documentation.
+
+* Better examples.
+
+* As of release 1.0, all the public interfaces for the entire API are
+  contained in a single include file.  Later versions might split our the
+  functionality into separate modules.
+
+* More operators -- I'd like to get the entire set of built-ins working.
+
+* Unify (or perhaps just provide an interface to/from) Perl and C++ I/O.
+
+* Interface to lexical scratchpads and the Perl stack
+
+* Dynamic XS construction from a C++ class.  An instance of the class works
+  like a closure.  The Perl stack to C++ argument list can be handled either
+  with SWIG (for certain canonical XS forms) or with libffi (for generic
+  prototype based call sequences).
+
+
+Difficulties With Embedded Perl
+
+Using embedded perl with libraries is weird because it isn't clear who should
+"own" the interpreter.  How should the library find one?  Should it start one
+itself if one isn't already running?
+
+Sequencing of statics is a nightmare!  There are so many problems with this
+that global/static perl objects should not be created.  The worst problem is
+if a static perl interpreter is used in conjunction with static perl data.  If
+the interpreter is destroyed first, it will destroy all data leaving some
+dangling pointers.
+
+Perl scalars almost always become one byte larger than the length parameter
+says because Perl was designed with C strings in mind.  The down-side is that
+when dealing with C structs and C++ classes, Perl wastes space.  (This shouldn't
+be a problem for the templatized container classes anymore.)
+

@@ -189,15 +189,27 @@ void test_searching()
 
     int count = 0;
     s1.restart_search();
-    while (s1.find_next("\\w+")) ++count;
+    while (s1.find_next("\\w+"))
+    {
+	++count;
+	printf("found word %d\n", count);
+    }
     test_assertion(count == 9, ("should have iterated through 9 words, only did %d", count));
     count = 0;
     s1.restart_search();
-    while (s1.find_next("\\w+")) ++count;
+    while (s1.find_next("\\w+"))
+    {
+	++count;
+	printf("found word %d\n", count);
+    }
     test_assertion(count == 9, ("should have iterated through 9 words, only did %d", count));
     count = 0;
-    while (s1.find_next("\\w+")) ++count;
-    test_assertion(count == 0, ("should have iterated through 0 words"));
+    while (s1.find_next("\\w+"))
+    {
+	++count;
+	printf("found word %d\n", count);
+    }
+    test_assertion(count == 0, ("should have iterated through 0 words (did %d)", count));
 
     static char *matched_words[] = { "This", "is", "a", "test", "of", "the", "Perl", "C", "interface" };
     count = 0;
@@ -280,8 +292,8 @@ void test_arrays()
 
     wPerlScalar e = a.pop(); dump(a);
 
-    if (!e) printf("array is empty\n");
-    if (!a) printf("array is empty\n");
+    if (!e.is_true()) printf("array is empty\n");
+    if (!a.is_true()) printf("array is empty\n");
 
     a.push(1);	dump(a);
     a.push(2);	dump(a);
@@ -312,7 +324,11 @@ void test_arrays()
 
     printf("B: "); dump(b);
 
+#ifndef USE_INT_BOOL
     while (a)
+#else
+    while (a.is_true())
+#endif
     {
 	printf("length = %d\n", a.length());
 	a.shift(); dump(a);
@@ -486,7 +502,7 @@ void test_arithmetic()
     wPerlScalar a = 10;
 
     wPerlScalar b = 2 + a;
-    test_assertion(b.as_integer() == 12, ("addition failed"));
+    test_assertion(b.as_integer() == 12, ("addition failed (result = %d)", b.as_integer()));
     a += 10;
     test_assertion(a.as_integer() == 20, ("addition failed"));
     a += a;
@@ -597,8 +613,8 @@ void test_transmutation_of_scalars()
     test_assertion(r == 499500, ("r not computed correctly"));
     test_assertion(r.eq("499500"), ("r not transmuted to string correctly"));
 
-    test_assertion(r, ("r as boolean failed"));
-    test_assertion(!s, ("s as boolean failed"));
+    test_assertion(r.is_true(), ("r as boolean failed"));
+    test_assertion(!s.is_true(), ("s as boolean failed"));
 }
 
 class Foo
@@ -610,7 +626,7 @@ class Foo
 	Foo(const Foo &that) : i(17) { printf("copy Foo %d <- Foo %d\n", i, that.i); i = that.i; }
 	~Foo() { printf("destroy Foo %d\n", i); }
 
-	print() { printf("*** Foo %d\n", i); }
+	void print() { printf("*** Foo %d\n", i); }
 };
 
 void test_array_templates()

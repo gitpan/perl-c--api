@@ -1,9 +1,14 @@
 
-all: simple.exe signals.exe use-module.exe shadow.exe hash.exe
+all: simple.exe signals.exe use-module.exe shadow.exe hash.exe print-host.cc
 
 
 C++ = g++
-C++-FLAGS = -g -I..
+C++-FLAGS = -g -Wall
+
+#C++ = CC
+#C++-FLAGS = -g
+
+C++-FLAGS += -I..
 LINK-FLAGS = -g
 
 PERL = perl

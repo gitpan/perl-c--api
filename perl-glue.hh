@@ -7,8 +7,19 @@
 # define HAS_TEMPLATES
 #endif
 
+#if defined(__SUNPRO_CC)
+# define USE_INT_BOOL
+# define HAS_TEMPLATES
+#endif
+
 #ifndef HAS_BOOL
-typedef enum { false = 0, true = 1 } bool;
+# ifdef USE_INT_BOOL
+    typedef int bool;
+    const bool false = 0;
+    const bool true = 1;
+# else
+    typedef enum { false = 0, true = 1 } bool;
+# endif
 #endif
 
 #include <string.h>
@@ -59,13 +70,19 @@ typedef unsigned int pPerlLength;	// scalar length (STRLEN)
 # define TRs(N)
 #endif
 
+#ifndef USE_INT_BOOL
+# define BOOL_CAST operator bool () const { return is_true(); }
+#else
+# define BOOL_CAST
+#endif
+
 #define wPerl_ValueInterface(N, T) \
     friend class wPerl;											\
     friend class wPerl ## N ## Shadow;									\
     public:												\
 	enum XV_Share { Share };									\
 	enum XV_Keep { Keep };										\
-    protected:												\
+    public:												\
 	T *v;												\
     public:												\
 	void copy(const T *that_v);									\
@@ -84,7 +101,8 @@ typedef unsigned int pPerlLength;	// scalar length (STRLEN)
     public:												\
 	~wPerl ## N();											\
 	bool defined() const;										\
-	operator bool () const;										\
+	bool is_true() const;										\
+	BOOL_CAST											\
 	wPerl ## N(const wPerl ## N &that) : v(0)							\
 	    { TR(N) copy(that.v); }									\
 	wPerl ## N &operator = (const wPerl ## N &that)							\
@@ -96,7 +114,7 @@ typedef unsigned int pPerlLength;	// scalar length (STRLEN)
 #define wPerl_ShadowInterface(N, T) \
     friend class wPerl;											\
     friend class wPerl ## N;										\
-    protected:												\
+    public:												\
 	wPerl ## N ## Shadow(T *that_v = 0) : wPerl ## N(that_v, wPerl ## N::Share)			\
 	    { TRs(N) }											\
 	wPerl ## N ## Shadow(T *that_v, wPerl ## N::XV_Keep) : wPerl ## N(that_v, wPerl ## N::Keep)	\
@@ -140,6 +158,8 @@ class wPerlScalar
 	wPerlScalar() : v(0)
 	    { TR(Scalar) }
 
+	void clobber_closure();
+
 	wPerlScalar(const void *value, pPerlLength value_len);
 	wPerlScalar(const char *value);
 	wPerlScalar(int value);
@@ -177,6 +197,12 @@ class wPerlScalar
 	wPerlScalarShadow deref_as_scalar();
 	wPerlArrayShadow deref_as_array();
 	wPerlHashShadow deref_as_hash();
+
+	bool isa_subroutine() const;
+	bool isa_ref() const;
+	bool isa_scalar_ref() const;
+	bool isa_array_ref() const;
+	bool isa_hash_ref() const;
 
 	bool replace(const char *pattern, const char *replacement) const;
 
@@ -231,6 +257,11 @@ class wPerlScalar
 	    { return append(value, strlen(value)); }
 	wPerlScalar &append(const wPerlScalar &value);
 
+	wPerlScalar &prepend(const void *value, pPerlLength value_len);
+	wPerlScalar &prepend(const char *value)
+	    { return prepend(value, strlen(value)); }
+	wPerlScalar &prepend(const wPerlScalar &value);
+
 	bool lt(const wPerlScalar &string) const;
 	bool le(const wPerlScalar &string) const;
 	bool ge(const wPerlScalar &string) const;
@@ -241,15 +272,15 @@ class wPerlScalar
 	bool ne(const wPerlScalar &string) const;
 
 #define A(N) const wPerlScalar &arg ## N
-	wPerlScalar operator () ();
-	wPerlScalar operator () (A(1));
-	wPerlScalar operator () (A(1), A(2));
-	wPerlScalar operator () (A(1), A(2), A(3));
-	wPerlScalar operator () (A(1), A(2), A(3), A(4));
-	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5));
-	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5), A(6));
-	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7));
-	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8));
+	wPerlScalar operator () () const;
+	wPerlScalar operator () (A(1)) const;
+	wPerlScalar operator () (A(1), A(2)) const;
+	wPerlScalar operator () (A(1), A(2), A(3)) const;
+	wPerlScalar operator () (A(1), A(2), A(3), A(4)) const;
+	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5)) const;
+	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5), A(6)) const;
+	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7)) const;
+	wPerlScalar operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8)) const;
 #undef A
 };
 
@@ -291,6 +322,9 @@ class wPerlPattern: protected wPerlScalar
 	    { }
 	wPerlPattern(const char *pattern = 0) : wPerlScalar(0, wPerlScalar::Keep)
 	    { compile(pattern); }
+
+	~wPerlPattern()
+	    { clobber_closure(); }
 
 	wPerlPattern &operator = (const wPerlPattern &that)
 	    { copy(that.v); return *this; }
@@ -338,6 +372,8 @@ class wPerlArray
 	wPerlArray &operator << (wPerlScalar value);
 	void unshift(wPerlScalar value)
 	    { unshift_shared(value); }
+
+	void remove(pPerlIndex o, pPerlLength count = 1);
 
 	wPerlArrayShadow sort();
 
@@ -421,6 +457,21 @@ template <class T> class tPerlArray
 		}
 
 		return p;
+	    }
+
+	void remove(pPerlIndex o, pPerlLength count = 1)
+	    {
+		if (o < 0) o += array.length();
+		if (o < 0) o = 0;
+		T *p;
+		pPerlLength i = 0;
+		while (i < count)
+		{
+		    p = (T *)array.get_pv(o + i);
+		    if (p) p->T::~T();
+		    ++i;
+		}
+		array.remove(o, count);
 	    }
 
 	pPerlIndex push(const T &value)
@@ -605,6 +656,11 @@ template <class T> class tPerlHash
 	wPerlHash hash;
 
     public:
+	bool exists(const char *key) const
+	    { return hash.exists(key, strlen(key)); }
+	bool exists(int key) const
+	    { return hash.exists(&key, sizeof(key)); }
+
 	T *get(const void *key, pPerlLength key_len) const
 	    { return (T *)hash.get_pv(key, key_len); }
 	T *get(const char *key) const
@@ -815,6 +871,7 @@ class wPerl
 	SV *t_substr;
 	SV *t_rep_substr;
 	SV *t_split;
+	SV *t_remove_elements;
 	SV *t_sort_array;
 
 	bool use_locale;
@@ -823,8 +880,8 @@ class wPerl
 	static wPerl *running_interpreter;
 
     protected:
-	bool internal_use(const char *module, int num, const char *functions[]);
-	SV *internal_call(const SV *closure, int argc, const SV *argv[]);
+	bool internal_use(const char *module, int num, const char *functions[]) const;
+	SV *internal_call(const SV *closure, int argc, const SV *argv[]) const;
 
     public:
 	wPerl();
@@ -846,6 +903,7 @@ class wPerl
 
 	wPerlScalar eval(const char *expr);
 
+	const wPerlScalar &undef();
 	wPerlScalarShadow scalar(const char *name, LookupModifier should_create = DontCreate);
 	wPerlArrayShadow array(const char *name, LookupModifier should_create = DontCreate);
 	wPerlHashShadow hash(const char *name, LookupModifier should_create = DontCreate);

@@ -4,8 +4,14 @@ all: t loop-time
 test: t
 	./t
 
+
 C++ = g++
-C++-FLAGS = -g -I..
+C++-FLAGS = -g -Wall
+
+#C++ = CC
+#C++-FLAGS = -g
+
+C++-FLAGS += -I..
 LINK-FLAGS = -g
 
 PERL = perl

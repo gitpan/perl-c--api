@@ -73,3 +73,24 @@ should be quite reliable, but demos, tests and documentation are still scarce.
 
 - Ken
   5:42 pm Sunday, June 8, 1997
+
+A Perl memory leak caused by eval 'sub { ... }' is hacked around.  This was
+causing serious leakage for regex patterns.  (I believe that Perl is now
+fixed in a development release, but not in 5.004_01.)  ENTER/LEAVE now brackets
+all evaluations, even those that discard return results.  I believe that the
+documentation is incorrect in saying that ENTER/LEAVE is optional (that seems
+to be true only for XS subroutines called from perl).
+
+Several more functions were added too.  You can prepend and append to scalars.
+You can delete array elements out of the middle.  There's better support for
+references.
+
+The biggest API change has been to open up the wrapper internals so that
+users can directly get at the SV, AV, and HV.  This is probably only a short-
+term hack until I figure out a clean solution to the things that an SV is
+used for.  (Like returning results from an XS.)
+
+Still missing documentation... :-(
+
+- Ken
+  3:24 pm Tuesday, July 15, 1997

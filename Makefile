@@ -5,8 +5,11 @@ all: perl-glue.o
 C++ = g++
 C++-FLAGS = -g -Wall
 
-# If your compiler is not gcc and it does have the "bool" type and
-# templates, you will need to add some -D options to your compiler flags:
+#C++ = CC
+#C++-FLAGS = -g
+
+# If your compiler is not gcc or Sun CC and it does have the "bool" type
+# or templates, you will need to add some -D options to your compiler flags:
 #
 # C++-FLAGS += -DHAS_BOOL
 # C++-FLAGS += -DHAS_TEMPLATES

@@ -1,4 +1,8 @@
 
+#ifndef __GNUC__
+# define __attribute__(_arg_)
+#endif
+
 #include <EXTERN.h>
 #include <perl.h>
 #include <alloca.h>
@@ -64,7 +68,7 @@ wPerl::wPerl()
 		"}\n"
 
 		"sub t_find_next {"
-		    "$_[0] =~ m\001$_[1]\001g;"
+		    "$_[0] =~ m\001$_[1]\001gc;"
 		"}\n"
 
 		"sub t_bind_up_matches {"
@@ -158,6 +162,10 @@ wPerl::wPerl()
 		    "}"
 		"}\n"
 
+		"sub t_remove_elements {"
+		    "splice @{$_[0]}, $_[1], $_[2];"
+		"}\n"
+
 		"sub t_sort_array {"
 		    "@{$_[0]} = sort(@{$_[1]});"
 		"}\n"
@@ -196,6 +204,7 @@ wPerl::wPerl()
 	init(t_substr);
 	init(t_rep_substr);
 	init(t_split);
+	init(t_remove_elements);
 	init(t_sort_array);
 
 	use_locale = false;
@@ -238,7 +247,7 @@ wPerl::~wPerl()
     perl = 0;
 }
 
-bool wPerl::internal_use(const char *module, int num, const char *functions[])
+bool wPerl::internal_use(const char *module, int num, const char *functions[]) const
 {
     bool status = false;
 
@@ -277,7 +286,7 @@ bool wPerl::internal_use(const char *module, int num, const char *functions[])
     return status;
 }
 
-SV *wPerl::internal_call(const SV *sub, int argc, const SV *argv[])
+SV *wPerl::internal_call(const SV *sub, int argc, const SV *argv[]) const
 {
     SV *result = 0;
 
@@ -398,6 +407,12 @@ wPerlScalar wPerl::eval(const char *expr)
     return wPerlScalar(result, wPerlScalar::Keep);
 }
 
+const wPerlScalar &wPerl::undef()
+{
+    static wPerlScalar value(&sv_undef, wPerlScalar::Keep);
+    return value;
+}
+
 wPerlScalarShadow wPerl::scalar(const char *name, LookupModifier should_create)
 {
     SV *v = perl_get_sv(const_cast(char *, name), should_create == Create);
@@ -488,12 +503,26 @@ SV *wPerlScalar::get_shared_ref() const
     return &sv_undef;
 }
 
+void wPerlScalar::clobber_closure()
+{
+    if (v && SvROK(v))
+    {
+	SV *sv = SvRV(v);
+	if (SvTYPE(sv) == SVt_PVCV && CvANON(sv) && SvREFCNT(sv) == 2)
+	{
+	    cv_undef((CV *)sv);
+	}
+	SvREFCNT_dec(v);
+	v = 0;
+    }
+}
+
 bool wPerlScalar::defined() const
 {
     return v != 0 && SvOK(v);
 }
 
-wPerlScalar::operator bool () const
+bool wPerlScalar::is_true() const
 {
     return v != 0 && SvTRUE(v);
 }
@@ -762,6 +791,55 @@ wPerlHashShadow wPerlScalar::deref_as_hash()
     return wPerlHashShadow();
 }
 
+bool wPerlScalar::isa_subroutine() const
+{
+    if (v && SvROK(v))
+    {
+	SV *sv = SvRV(v);
+	return SvTYPE(sv) == SVt_PVCV;
+    }
+    return false;
+}
+
+bool wPerlScalar::isa_ref() const
+{
+    if (v && SvROK(v))
+    {
+	return true;
+    }
+    return false;
+}
+
+bool wPerlScalar::isa_scalar_ref() const
+{
+    if (v && SvROK(v))
+    {
+	SV *sv = SvRV(v);
+	return SvTYPE(sv) < SVt_PVLV;
+    }
+    return false;
+}
+
+bool wPerlScalar::isa_array_ref() const
+{
+    if (v && SvROK(v))
+    {
+	SV *sv = SvRV(v);
+	return SvTYPE(sv) == SVt_PVAV;
+    }
+    return false;
+}
+
+bool wPerlScalar::isa_hash_ref() const
+{
+    if (v && SvROK(v))
+    {
+	SV *sv = SvRV(v);
+	return SvTYPE(sv) == SVt_PVHV;
+    }
+    return false;
+}
+
 inline bool sv_is_true(SV *v)
 {
     return v != 0 && SvTRUE(v);
@@ -805,12 +883,18 @@ void wPerlScalar::restart_search(pPerlLength pos) const
     {
 	dSP;
 
+	ENTER;
+	SAVETMPS;
+
 	PUSHMARK(sp);
 	XPUSHs(v);
 	XPUSHs(sv_2mortal(newSViv(pos)));
 	PUTBACK;
 
 	perl_call_sv(wPerl::running_interpreter->t_restart_search, G_SCALAR|G_DISCARD);
+
+	FREETMPS;
+	LEAVE;
     }
 }
 
@@ -1122,6 +1206,9 @@ void wPerlScalar::replace_substr(const char *new_substr, pPerlLength offset, pPe
     {
 	dSP;
 
+	ENTER;
+	SAVETMPS;
+
 	PUSHMARK(sp);
 	XPUSHs(v);
 	XPUSHs(sv_2mortal(newSViv(offset)));
@@ -1133,6 +1220,9 @@ void wPerlScalar::replace_substr(const char *new_substr, pPerlLength offset, pPe
 	PUTBACK;
 
 	perl_call_sv(wPerl::running_interpreter->t_rep_substr, G_SCALAR | G_DISCARD);
+
+	FREETMPS;
+	LEAVE;
     }
 }
 
@@ -1143,6 +1233,9 @@ void wPerlScalar::split(const char *pattern, wPerlArray *fields, pPerlIndex limi
 	dSP;
 
 	fields->clear();
+
+	ENTER;
+	SAVETMPS;
 
 	PUSHMARK(sp);
 	XPUSHs(sv_2mortal(fields->get_shared_ref()));
@@ -1155,6 +1248,9 @@ void wPerlScalar::split(const char *pattern, wPerlArray *fields, pPerlIndex limi
 	PUTBACK;
 
 	perl_call_sv(wPerl::running_interpreter->t_split, G_SCALAR | G_DISCARD);
+
+	FREETMPS;
+	LEAVE;
     }
 }
 
@@ -1286,7 +1382,7 @@ wPerlScalar &wPerlScalar::append(const void *value, pPerlLength value_len)
 
     if (v)
     {
-	sv_catpvn(v, const_cast(char *, value), value_len);
+	if (value_len > 0) sv_catpvn(v, const_cast(char *, value), value_len);
     }
     else
     {
@@ -1307,6 +1403,36 @@ wPerlScalar &wPerlScalar::append(const wPerlScalar &value)
 	{
 	    v = newSVsv(value.v);
 	}
+    }
+    return *this;
+}
+
+wPerlScalar &wPerlScalar::prepend(const void *value, pPerlLength value_len)
+{
+    if (value == 0)
+    {
+	value = "";
+	value_len = 0;
+    }
+
+    if (v)
+    {
+	if (value_len > 0) sv_insert(v, 0, 0, const_cast(char *, value), value_len);
+    }
+    else
+    {
+	v = newSVpv(const_cast(char *, value), value_len);
+    }
+    return *this;
+}
+
+wPerlScalar &wPerlScalar::prepend(const wPerlScalar &value)
+{
+    if (value.v)
+    {
+	STRLEN len;
+	void *data = SvPV(value.v, len);
+	prepend(data, len);
     }
     return *this;
 }
@@ -1360,7 +1486,7 @@ bool wPerlScalar::ne(const wPerlScalar &string) const
 
 #define A(N) const wPerlScalar &arg ## N
 
-wPerlScalar wPerlScalar::operator () ()
+wPerlScalar wPerlScalar::operator () () const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1369,7 +1495,7 @@ wPerlScalar wPerlScalar::operator () ()
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1))
+wPerlScalar wPerlScalar::operator () (A(1)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1380,7 +1506,7 @@ wPerlScalar wPerlScalar::operator () (A(1))
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1), A(2))
+wPerlScalar wPerlScalar::operator () (A(1), A(2)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1392,7 +1518,7 @@ wPerlScalar wPerlScalar::operator () (A(1), A(2))
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3))
+wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1405,7 +1531,7 @@ wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3))
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4))
+wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1419,7 +1545,7 @@ wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4))
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5))
+wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1434,7 +1560,7 @@ wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5))
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6))
+wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1450,7 +1576,7 @@ wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6))
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7))
+wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1467,7 +1593,7 @@ wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7))
     return wPerlScalar((SV *)0);
 }
 
-wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8))
+wPerlScalar wPerlScalar::operator () (A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8)) const
 {
     if (v && wPerl::running_interpreter)
     {
@@ -1519,10 +1645,7 @@ bool operator != (const wPerlScalar &x, const wPerlScalar &y)
 
 void wPerlPattern::compile(const char *pattern)
 {
-    if (v)
-    {
-	SvREFCNT_dec(v);
-    }
+    clobber_closure();
 
     if (wPerl::running_interpreter && pattern)
     {
@@ -1622,7 +1745,7 @@ bool wPerlArray::defined() const
     return v != 0;
 }
 
-wPerlArray::operator bool () const
+bool wPerlArray::is_true() const
 {
     return v != 0 && AvFILL(v) + 1 > 0;
 }
@@ -1704,10 +1827,7 @@ wPerlScalarShadow wPerlArray::get(pPerlIndex o) const
     if (v)
     {
 	entry = av_fetch(v, o, FALSE);
-	if (entry)
-	{
-	    return wPerlScalarShadow(*entry);
-	}
+	if (entry) return wPerlScalarShadow(*entry);
     }
     return wPerlScalarShadow();
 }
@@ -1716,29 +1836,27 @@ wPerlScalar wPerlArray::pop()
 {
     SV *entry = 0;
 
-    if (v)
-    {
-	entry = av_pop(v);
-    }
-    return wPerlScalar(entry);
+    if (v) entry = av_pop(v);
+    return wPerlScalar(entry, wPerlScalar::Keep);
 }
 
 wPerlScalar wPerlArray::shift()
 {
     SV *entry = 0;
 
-    if (v)
-    {
-	entry = av_shift(v);
-    }
-    return wPerlScalar(entry);
+    if (v) entry = av_shift(v);
+    return wPerlScalar(entry, wPerlScalar::Keep);
 }
 
 wPerlArray &wPerlArray::operator >> (wPerlScalar &value)
 {
+    SV *entry = 0;
+
     if (v)
     {
-	value.copy(av_shift(v));
+	entry = av_shift(v);
+	value.copy(entry);
+	if (entry) SvREFCNT_dec(entry);
     }
     return *this;
 }
@@ -1787,6 +1905,28 @@ void wPerlArray::unshift_shared(const wPerlScalar &value)
     }
 }
 
+void wPerlArray::remove(pPerlIndex o, pPerlLength count)
+{
+    if (v && wPerl::running_interpreter)
+    {
+	dSP;
+
+	ENTER;
+	SAVETMPS;
+
+	PUSHMARK(sp);
+	XPUSHs(sv_2mortal(get_shared_ref()));
+	XPUSHs(sv_2mortal(newSViv(o)));
+	XPUSHs(sv_2mortal(newSViv(count)));
+	PUTBACK;
+
+	perl_call_sv(wPerl::running_interpreter->t_remove_elements, G_SCALAR | G_DISCARD);
+
+	FREETMPS;
+	LEAVE;
+    }
+}
+
 wPerlArrayShadow wPerlArray::sort()
 {
     wPerlArray sorted;
@@ -1795,12 +1935,18 @@ wPerlArrayShadow wPerlArray::sort()
     {
 	dSP;
 
+	ENTER;
+	SAVETMPS;
+
 	PUSHMARK(sp);
 	XPUSHs(sv_2mortal(sorted.get_shared_ref()));
 	XPUSHs(sv_2mortal(get_shared_ref()));
 	PUTBACK;
 
 	perl_call_sv(wPerl::running_interpreter->t_sort_array, G_SCALAR | G_DISCARD);
+
+	FREETMPS;
+	LEAVE;
     }
     return sorted;
 }
@@ -1963,7 +2109,7 @@ bool wPerlHash::defined() const
     return v != 0;
 }
 
-wPerlHash::operator bool () const
+bool wPerlHash::is_true() const
 {
     // This is not complete because it doesn't work (correctly) for magic hashes.  FIXME
     return v != 0 && HvKEYS(v) > 0;
@@ -2190,7 +2336,7 @@ wPerlArrayShadow wPerlHash::keys() const
 	while ((he = hv_iternext(const_cast(HV *, v))) != 0)
 	{
 	    key = hv_iterkey(he, &key_len);
-	    keys << wPerlScalar(key, key_len);
+	    keys.push(wPerlScalar(key, key_len));
 	}
     }
     return keys;
